@@ -9,6 +9,8 @@ import (
 	"github.com/mattcarp12/url-shortener/internal/db"
 	"github.com/mattcarp12/url-shortener/internal/middleware"
 	"github.com/mattcarp12/url-shortener/internal/store"
+
+	"github.com/rs/cors"
 )
 
 // Define our JSON request and response payloads
@@ -40,6 +42,13 @@ func main() {
 	// 2. Set up the multiplexer (router)
 	mux := http.NewServeMux()
 
+	corsOptions := cors.New(cors.Options{
+		AllowedOrigins:   []string{"http://localhost:4566"}, // Frontend origin
+		AllowedMethods:   []string{"GET", "POST"},
+		AllowedHeaders:   []string{"Content-Type"},
+		AllowCredentials: true,
+	})
+
 	// 3. Define the routes
 	// Go 1.22+ allows us to specify the HTTP method directly in the route string
 	mux.HandleFunc("POST /api/urls", middleware.RateLimitAPI(handleCreateURL))
@@ -48,7 +57,7 @@ func main() {
 	// 4. Start the server
 	port := ":8080"
 	fmt.Printf("🚀 Server starting on http://localhost%s\n", port)
-	if err := http.ListenAndServe(port, mux); err != nil {
+	if err := http.ListenAndServe(port, corsOptions.Handler(mux)); err != nil {
 		log.Fatalf("Server failed to start: %v", err)
 	}
 }

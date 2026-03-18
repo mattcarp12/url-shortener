@@ -26,5 +26,18 @@ services:
     ports:
       - "6379:6379"
 
+  localstack:
+    image: localstack/localstack
+    restart: unless-stopped
+    ports:
+      - "4566:4566" # The main LocalStack API Gateway port
+    environment:
+      - SERVICES=s3,ecs,rds,elasticache,cloudformation # The specific mock services we want
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - localstack-data:/var/lib/localstack
+      - "/var/run/docker.sock:/var/run/docker.sock"
+
 volumes:
   pgdata:
+  localstack-data:

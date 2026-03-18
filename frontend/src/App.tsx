@@ -16,7 +16,7 @@ function App() {
     setShortUrl('')
 
     try {
-      const response = await fetch('/api/urls', {
+      const response = await fetch('http://localhost:8080/api/urls', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

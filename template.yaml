@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'URL Shortener Infrastructure - S3, RDS (Postgres), and ElastiCache (Redis)'
+
+Resources:
+  # 1. The S3 Bucket for our React Vite build
+  FrontendBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: shortener-frontend-app
+      # In production, we'd add PublicAccessBlockConfiguration here
+
+  # 2. The PostgreSQL Database (RDS)
+  ShortenerDB:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: shortener-postgres
+      Engine: postgres
+      DBInstanceClass: db.t3.micro
+      MasterUsername: devuser
+      MasterUserPassword: devpassword
+      AllocatedStorage: 20
+      PubliclyAccessible: false
+
+  # 3. The Redis Cache (ElastiCache)
+  RateLimitCache:
+    Type: AWS::ElastiCache::CacheCluster
+    Properties:
+      ClusterName: shortener-redis
+      Engine: redis
+      CacheNodeType: cache.t3.micro
+      NumCacheNodes: 1
+
+Outputs:
+  BucketName:
+    Description: "The name of the S3 bucket"
+    Value: !Ref FrontendBucket
+  DatabaseEndpoint:
+    Description: "The connection endpoint for Postgres"
+    Value: !GetAtt ShortenerDB.Endpoint.Address
+  RedisEndpoint:
+    Description: "The connection endpoint for Redis"
+    Value: !GetAtt RateLimitCache.RedisEndpoint.Address
