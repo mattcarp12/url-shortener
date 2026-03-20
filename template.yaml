@@ -1,15 +1,202 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: 'URL Shortener Infrastructure - S3, RDS (Postgres), and ElastiCache (Redis)'
+Description: 'URL Shortener Production Infrastructure - VPC, ALB, ECS, RDS, ElastiCache, S3'
 
+# ==========================================================
+# 1. NETWORKING (The VPC & Subnets)
+# ==========================================================
 Resources:
-  # 1. The S3 Bucket for our React Vite build
+  ShortenerVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref ShortenerVPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref ShortenerVPC
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VPCGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Public Subnet 1 (For ALB and ECS)
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ShortenerVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  # Public Subnet 2 (For ALB and ECS High Availability)
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ShortenerVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+      MapPublicIpOnLaunch: true
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Private Subnet 1 (For DB and Redis)
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ShortenerVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  # Private Subnet 2 (For DB and Redis)
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref ShortenerVPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+
+
+# ==========================================================
+# 2. SECURITY GROUPS (The Virtual Firewalls)
+# ==========================================================
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTP traffic from the internet to the Load Balancer
+      VpcId: !Ref ShortenerVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow traffic ONLY from the ALB to the Go Containers
+      VpcId: !Ref ShortenerVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+  DatabaseSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Postgres traffic ONLY from the Go Containers
+      VpcId: !Ref ShortenerVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+
+  RedisSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow Redis traffic ONLY from the Go Containers
+      VpcId: !Ref ShortenerVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 6379
+          ToPort: 6379
+          SourceSecurityGroupId: !Ref ECSSecurityGroup
+
+
+# ==========================================================
+# 3. LOAD BALANCER (The Traffic Director)
+# ==========================================================
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: shortener-alb
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: shortener-targets
+      VpcId: !Ref ShortenerVPC
+      Port: 8080
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckPath: / # ECS checks this path to ensure your app is alive
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+
+# ==========================================================
+# 4. STORAGE & DATABASES (S3, RDS, ElastiCache)
+# ==========================================================
   FrontendBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: shortener-frontend-app
-      # In production, we'd add PublicAccessBlockConfiguration here
+      BucketName: !Sub "shortener-frontend-${AWS::AccountId}" # S3 names must be globally unique
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      WebsiteConfiguration:
+        IndexDocument: index.html
 
-  # 2. The PostgreSQL Database (RDS)
+  FrontendBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendBucket
+      PolicyDocument:
+        Statement:
+          - Action: s3:GetObject
+            Effect: Allow
+            Resource: !Sub "arn:aws:s3:::${FrontendBucket}/*"
+            Principal: "*"
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for the Postgres DB
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
   ShortenerDB:
     Type: AWS::RDS::DBInstance
     Properties:
@@ -19,9 +206,18 @@ Resources:
       MasterUsername: devuser
       MasterUserPassword: devpassword
       AllocatedStorage: 20
-      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DatabaseSecurityGroup
 
-  # 3. The Redis Cache (ElastiCache)
+  CacheSubnetGroup:
+    Type: AWS::ElastiCache::SubnetGroup
+    Properties:
+      Description: Private subnets for Redis
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+
   RateLimitCache:
     Type: AWS::ElastiCache::CacheCluster
     Properties:
@@ -29,14 +225,83 @@ Resources:
       Engine: redis
       CacheNodeType: cache.t3.micro
       NumCacheNodes: 1
+      CacheSubnetGroupName: !Ref CacheSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref RedisSecurityGroup
 
+
+# ==========================================================
+# 5. COMPUTE (ECS Fargate)
+# ==========================================================
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: shortener-cluster
+
+  ECSExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: shortener-api-task
+      RequiresCompatibilities:
+        - FARGATE
+      NetworkMode: awsvpc
+      Cpu: 256
+      Memory: 512
+      ExecutionRoleArn: !GetAtt ECSExecutionRole.Arn
+      ContainerDefinitions:
+        - Name: shortener-api-container
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/shortener-backend:latest"
+          PortMappings:
+            - ContainerPort: 8080
+          Environment:
+            - Name: DATABASE_URL
+              Value: !Sub "postgres://devuser:devpassword@${ShortenerDB.Endpoint.Address}:5432/postgres?sslmode=disable"
+            - Name: REDIS_URL
+              Value: !Sub "${RateLimitCache.RedisEndpoint.Address}:6379"
+            - Name: FRONTEND_URL
+              Value: !Sub "http://${FrontendBucket}.s3-website-${AWS::Region}.amazonaws.com"
+
+  ECSService:
+    Type: AWS::ECS::Service
+    DependsOn: ALBListener # Don't start containers until the ALB is ready
+    Properties:
+      Cluster: !Ref ECSCluster
+      ServiceName: shortener-api-service
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 1
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED # Required to pull the ECR image without a NAT Gateway
+          Subnets:
+            - !Ref PublicSubnet1
+            - !Ref PublicSubnet2
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+      LoadBalancers:
+        - ContainerName: shortener-api-container
+          ContainerPort: 8080
+          TargetGroupArn: !Ref ALBTargetGroup
+
+# ==========================================================
+# 6. OUTPUTS (URLs you need)
+# ==========================================================
 Outputs:
-  BucketName:
-    Description: "The name of the S3 bucket"
-    Value: !Ref FrontendBucket
-  DatabaseEndpoint:
-    Description: "The connection endpoint for Postgres"
-    Value: !GetAtt ShortenerDB.Endpoint.Address
-  RedisEndpoint:
-    Description: "The connection endpoint for Redis"
-    Value: !GetAtt RateLimitCache.RedisEndpoint.Address
+  ApiUrl:
+    Description: The URL for your Go Backend (Put this in your React .env)
+    Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
+  FrontendUrl:
+    Description: The URL for your React Frontend
+    Value: !Sub "http://${FrontendBucket}.s3-website-${AWS::Region}.amazonaws.com"
