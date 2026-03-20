@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Base Infrastructure: ECR Registry and GitHub Actions OIDC Security'
+
+Parameters:
+  GitHubOrg:
+    Type: String
+    Description: Your GitHub username or organization name (e.g., octocat)
+  GitHubRepo:
+    Type: String
+    Description: The name of your GitHub repository (e.g., my-shortener)
+
+Resources:
+  # ==========================================================
+  # 1. ELASTIC CONTAINER REGISTRY (ECR)
+  # ==========================================================
+  BackendRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: shortener-backend
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+  # ==========================================================
+  # 2. GITHUB OIDC IDENTITY PROVIDER
+  # ==========================================================
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      # These are the official thumbprints required by AWS to trust GitHub's certificate
+      ThumbprintList:
+        - 6938fd4d98bab03faadb97b34396831e3780aea1
+        - 1c58a3a8518e8759bf075b76b750d4f2df264fcd
+
+  # ==========================================================
+  # 3. GITHUB ACTIONS IAM ROLE
+  # ==========================================================
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: GitHubActionsDeployRole
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRoleWithWebIdentity
+            Principal:
+              Federated: !Ref GitHubOidcProvider
+            Condition:
+              # CRITICAL SECURITY: This ensures ONLY your specific repo can assume this role!
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubOrg}/${GitHubRepo}:*
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+      ManagedPolicyArns:
+        # Note: In a strict enterprise environment, we would build a custom policy with least privilege. 
+        # For this sandbox, AdministratorAccess ensures the pipeline won't fail due to missing permissions.
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
+Outputs:
+  GitHubRoleArn:
+    Description: The ARN of the role to put in your GitHub Actions YAML
+    Value: !GetAtt GitHubActionsRole.Arn

@@ -233,6 +233,12 @@ Resources:
 # ==========================================================
 # 5. COMPUTE (ECS Fargate)
 # ==========================================================
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/shortener-api
+      RetentionInDays: 7 # Don't keep logs forever, it costs money
+  
   ECSCluster:
     Type: AWS::ECS::Cluster
     Properties:
@@ -265,6 +271,12 @@ Resources:
           Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/shortener-backend:latest"
           PortMappings:
             - ContainerPort: 8080
+          LogConfiguration: 
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: !Ref "AWS::Region"
+              awslogs-stream-prefix: api
           Environment:
             - Name: DATABASE_URL
               Value: !Sub "postgres://devuser:devpassword@${ShortenerDB.Endpoint.Address}:5432/postgres?sslmode=disable"
