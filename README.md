@@ -11,8 +11,7 @@ The application features a React/Vite frontend hosted on S3, and a high-performa
 ### Key Engineering Patterns
 * **Cache-Aside:** The Go API intercepts read requests and checks Redis for the short code before hitting the Postgres database, reducing database read volume.
 * **Token Bucket Rate Limiting:** The API utilizes Redis to enforce rate limiting on incoming requests to prevent abuse and DDoS vectors.
-
----
+* **Base62 Encoding**: The API utilizes Base62 encoding ([0-9a-zA-Z]) to deterministically compress sequential Postgres database IDs into URL-safe alphanumeric short codes. 
 
 ## 🚀 Deployment Guide
 
