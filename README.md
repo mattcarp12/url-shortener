@@ -65,11 +65,11 @@ Because the ECS will need the Backend App docker image in ECR to successfully de
 
 3. Save this as a Repository Variable in Github named `VITE_API_BASE_URL`
 
-### Final Sync
+### 4. Final Sync
 
 Rerun the frontend action in github to compile the React application and sync to the newly created S3 bucket.
 
-### Teardown
+### 5. Teardown
 1. Empty the S3 bucket:
     ```bash
     aws s3 rm s3://YOUR-BUCKET-NAME --recursive
