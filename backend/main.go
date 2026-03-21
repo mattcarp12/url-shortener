@@ -91,10 +91,16 @@ func handleCreateURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// We'll construct the full short URL. In production, the domain comes from an env var.
-	baseURL := "http://localhost:8080/"
+	// We'll construct the full short URL.
+	baseURL := os.Getenv("BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:8080"
+	}
+	if baseURL[len(baseURL)-1] == '/' {
+		baseURL = baseURL[:len(baseURL)-1] // Remove trailing slash if present
+	}
 	resp := CreateURLResponse{
-		ShortURL: baseURL + record.ShortCode,
+		ShortURL: baseURL + "/" + record.ShortCode,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

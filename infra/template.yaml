@@ -285,6 +285,8 @@ Resources:
               Value: !Sub "${RateLimitCache.RedisEndpoint.Address}:6379"
             - Name: FRONTEND_URL
               Value: !Sub "http://${FrontendBucket}.s3-website-${AWS::Region}.amazonaws.com"
+            - Name: BASE_URL
+              Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
 
   ECSService:
     Type: AWS::ECS::Service
