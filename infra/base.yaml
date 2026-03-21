@@ -40,7 +40,7 @@ Resources:
   GitHubActionsRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: GitHubActionsDeployRole
+      RoleName: GitHubActionsDeployRole-UrlShortener
       AssumeRolePolicyDocument:
         Statement:
           - Effect: Allow

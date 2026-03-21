@@ -1,0 +1,69 @@
+name: Deploy React Frontend to Amazon S3
+
+# 1. THE TRIGGERS
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/**'                    # Only run if React code changes
+      - '.github/workflows/frontend.yml' # Or if this pipeline changes
+  workflow_dispatch: # Allow manual triggering from the GitHub UI
+
+# 2. THE SECURITY PERMISSIONS (Reusing your OIDC setup)
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Build and Sync to S3
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 3. SETUP PNPM & NODE
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 8 # Use the version of pnpm you have locally
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # 4. INSTALL DEPENDENCIES & BUILD
+      - name: Install Dependencies
+        working-directory: ./frontend
+        run: pnpm install
+
+      - name: Build Vite App
+        working-directory: ./frontend
+        # We inject the ALB URL into the build environment right here
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+        run: pnpm run build
+
+      # 5. AUTHENTICATE WITH AWS
+      - name: Configure AWS Credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Get AWS Account ID
+        run: |
+          ACCOUNT_ID=$(aws sts get-caller-identity --query "Account" --output text)
+          echo "S3_BUCKET_NAME=shortener-frontend-$ACCOUNT_ID" >> $GITHUB_ENV
+
+      # 6. DEPLOY TO S3
+      - name: Sync files to S3 bucket
+        working-directory: ./frontend
+        run: |
+          # The --delete flag removes files in the bucket that no longer exist in your build
+          aws s3 sync dist/ s3://${{ env.S3_BUCKET_NAME }} --delete

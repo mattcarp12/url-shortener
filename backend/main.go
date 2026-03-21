@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/mattcarp12/url-shortener/internal/db"
 	"github.com/mattcarp12/url-shortener/internal/middleware"
@@ -42,8 +43,13 @@ func main() {
 	// 2. Set up the multiplexer (router)
 	mux := http.NewServeMux()
 
+	frontendOrigin := "http://localhost:4566"
+	if envOrigin := os.Getenv("FRONTEND_URL"); envOrigin != "" {
+		frontendOrigin = envOrigin
+	}
+
 	corsOptions := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:4566"}, // Frontend origin
+		AllowedOrigins:   []string{frontendOrigin},
 		AllowedMethods:   []string{"GET", "POST"},
 		AllowedHeaders:   []string{"Content-Type"},
 		AllowCredentials: true,
@@ -51,6 +57,7 @@ func main() {
 
 	// 3. Define the routes
 	// Go 1.22+ allows us to specify the HTTP method directly in the route string
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { w.Write([]byte("OK")) })
 	mux.HandleFunc("POST /api/urls", middleware.RateLimitAPI(handleCreateURL))
 	mux.HandleFunc("GET /{shortCode}", handleRedirect)
 

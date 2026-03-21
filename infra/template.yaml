@@ -279,7 +279,7 @@ Resources:
               awslogs-stream-prefix: api
           Environment:
             - Name: DATABASE_URL
-              Value: !Sub "postgres://devuser:devpassword@${ShortenerDB.Endpoint.Address}:5432/postgres?sslmode=disable"
+              Value: !Sub "postgres://devuser:devpassword@${ShortenerDB.Endpoint.Address}:5432/postgres?sslmode=require"
             - Name: REDIS_URL
               Value: !Sub "${RateLimitCache.RedisEndpoint.Address}:6379"
             - Name: FRONTEND_URL

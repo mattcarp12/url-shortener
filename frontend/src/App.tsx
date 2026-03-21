@@ -16,7 +16,7 @@ function App() {
     setShortUrl('')
 
     try {
-      const response = await fetch('http://localhost:8080/api/urls', {
+      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL}/api/urls`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,0 +1,68 @@
+name: Deploy Go Backend to Amazon ECS
+
+# 1. THE TRIGGERS
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'                   # Only run if Go code changes...
+      - '.github/workflows/backend.yml' # ...or if this file changes
+  workflow_dispatch: # Allow manual triggering from the GitHub UI
+
+env:
+  AWS_REGION: us-east-1 # Make sure this matches where you deployed!
+  ECR_REPOSITORY: shortener-backend
+  ECS_CLUSTER: shortener-cluster
+  ECS_SERVICE: shortener-api-service
+
+# 2. THE SECURITY PERMISSIONS (OIDC)
+permissions:
+  id-token: write # This is the magic line that allows GitHub to request the temporary AWS token
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 3. AUTHENTICATE WITH AWS
+      - name: Configure AWS Credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 4. LOGIN TO THE REGISTRY
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 5. BUILD AND PUSH THE MULTI-STAGE DOCKER IMAGE
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }} # We tag the image with the unique Git commit hash
+        working-directory: ./backend
+        run: |
+          echo "Building the Docker image..."
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          
+          echo "Tagging as latest..."
+          docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
+          
+          echo "Pushing to ECR..."
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      # 6. DEPLOY TO ECS (The Zero-Downtime Rollout)
+      - name: Force ECS Service to Pull New Image
+        run: |
+          aws ecs update-service \
+            --cluster ${{ env.ECS_CLUSTER }} \
+            --service ${{ env.ECS_SERVICE }} \
+            --force-new-deployment
