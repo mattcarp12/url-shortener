@@ -134,6 +134,7 @@ Resources:
 # ==========================================================
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    DependsOn: VPCGatewayAttachment # Ensure the ALB isn't created until the Internet Gateway is attached to the VPC
     Properties:
       Name: shortener-alb
       Subnets:
@@ -150,7 +151,7 @@ Resources:
       Port: 8080
       Protocol: HTTP
       TargetType: ip
-      HealthCheckPath: / # ECS checks this path to ensure your app is alive
+      HealthCheckPath: /health # ECS checks this path to ensure your app is alive
 
   ALBListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
